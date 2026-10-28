@@ -1,0 +1,44 @@
+{
+  "name": "helcurt-mcp-server",
+  "version": "1.0.0",
+  "description": "Helcurt MCP Server for remote machine monitoring",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "helcurt-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc && node build-exe.js",
+    "build:exe": "npx @yao-pkg/pkg . --output helcurt-server.exe --targets node18-win-x64",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "monitoring",
+    "logs",
+    "remote"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "chokidar": "^3.6.0",
+    "fast-glob": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@yao-pkg/pkg": "^6.24.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  },
+  "pkg": {
+    "assets": [
+      "config/**/*"
+    ],
+    "outputPath": "dist"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

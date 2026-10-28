@@ -1,0 +1,7 @@
+# Placeholder for BugReports directory
+# This directory will contain extracted bug report logs
+# Generated files will be timestamped and optionally compressed
+
+*.zip
+*.log
+system_info.json

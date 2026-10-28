@@ -1,0 +1,133 @@
+┌─────────────────────────────────────────────────────────────┐
+│        BUG REPORT LOG EXTRACTION - QUICK REFERENCE          │
+└─────────────────────────────────────────────────────────────┘
+
+📍 LOCATION: Utils/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  QUICK START
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Windows (Easiest):
+  Utils\extract-bug-logs.bat test-generation-failure
+
+Python (Cross-platform):
+  python Utils/extract-bug-logs.py test-generation-failure
+
+PowerShell:
+  .\Utils\extract-bug-logs.ps1 test-generation-failure
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BUG TYPES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+test-generation-failure    Test generation not working
+output-format-issue        CSV formatting problems  
+copilot-mcp-error         Azure DevOps MCP issues
+instruction-not-working    Instructions ignored
+general                   Other unexpected behavior
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  COMMON COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+List all bug types:
+  python Utils/extract-bug-logs.py --list
+  Utils\extract-bug-logs.bat --list
+
+Extract without compression:
+  python Utils/extract-bug-logs.py general --no-compress
+  Utils\extract-bug-logs.bat general --no-compress
+
+Custom config file:
+  python Utils/extract-bug-logs.py test-gen --config my-config.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  OUTPUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Default Location:
+  BugReports/
+
+Compressed (default):
+  BugReports/test-gen-failure_20260604_143022.zip
+
+Uncompressed (--no-compress):
+  BugReports/test-gen-failure_20260604_143022/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+bug-report-config.json    Configuration file
+extract-bug-logs.py       Python script (cross-platform)
+extract-bug-logs.ps1      PowerShell script (Windows)
+extract-bug-logs.bat      Batch launcher (Windows)
+README.md                 Full documentation
+CUSTOMIZATION.md          How to add custom bug types
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WORKFLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Encounter a bug
+2. Run: Utils\extract-bug-logs.bat <bug-type>
+3. Find the .zip file in BugReports/
+4. Review contents for sensitive data
+5. Attach to your bug report
+6. Done! ✓
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CUSTOMIZATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Edit bug-report-config.json to:
+  • Add new bug types
+  • Change log paths
+  • Adjust file size limits
+  • Modify output settings
+
+See CUSTOMIZATION.md for detailed guide.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+No files collected?
+  → Check paths in config file
+  → Verify environment variables expand correctly
+  → Try with --no-compress to debug
+
+Script won't run?
+  → Windows: Use extract-bug-logs.bat
+  → Ensure Python 3.7+ or PowerShell 5.1+ installed
+
+Output too large?
+  → Reduce maxFileSizeMB in config
+  → Be more specific with includePatterns
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  EXAMPLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Windows User - Test Generation Bug:
+  Utils\extract-bug-logs.bat test-generation-failure
+
+Mac/Linux User - MCP Error:
+  python Utils/extract-bug-logs.py copilot-mcp-error
+
+Check Available Types:
+  Utils\extract-bug-logs.bat --list
+
+Review Before Compressing:
+  python Utils/extract-bug-logs.py general --no-compress
+  # Check BugReports/general_*/
+  # Then compress manually if needed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📖 Full docs: Utils/README.md
+🔧 Customization: Utils/CUSTOMIZATION.md
+🐛 Report issues: GitHub Issues
+
+Made with ❤️ for easier bug reporting

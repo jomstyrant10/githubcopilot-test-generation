@@ -1,0 +1,86 @@
+{
+  "bugTypes": {
+    "test-generation-failure": {
+      "description": "Issues with test case generation not working properly",
+      "logPaths": [
+        "%APPDATA%\\Code\\logs",
+        "%USERPROFILE%\\.vscode\\extensions\\github.copilot-*\\dist\\*.log",
+        "%TEMP%\\vscode-copilot-*.log"
+      ],
+      "includePatterns": [
+        "*.log",
+        "*.txt"
+      ],
+      "maxFileSizeMB": 10,
+      "outputPrefix": "test-gen-failure"
+    },
+    "output-format-issue": {
+      "description": "Problems with generated CSV or output file format",
+      "logPaths": [
+        "Output\\*.csv",
+        "%APPDATA%\\Code\\logs",
+        ".vscode\\*.log"
+      ],
+      "includePatterns": [
+        "*.csv",
+        "*.log",
+        "*.json"
+      ],
+      "maxFileSizeMB": 5,
+      "outputPrefix": "output-format"
+    },
+    "copilot-mcp-error": {
+      "description": "Azure DevOps MCP integration errors",
+      "logPaths": [
+        ".vscode\\mcp.json",
+        "%APPDATA%\\Code\\logs",
+        "%APPDATA%\\Code\\User\\globalStorage\\github.copilot-chat\\sessions\\*.json",
+        "%TEMP%\\mcp-*.log"
+      ],
+      "includePatterns": [
+        "*.json",
+        "*.log"
+      ],
+      "maxFileSizeMB": 15,
+      "outputPrefix": "mcp-error"
+    },
+    "instruction-not-working": {
+      "description": "Instructions or prompts not being followed",
+      "logPaths": [
+        ".github\\instructions\\*.md",
+        "Prompts\\*.md",
+        "%APPDATA%\\Code\\logs",
+        "%APPDATA%\\Code\\User\\globalStorage\\github.copilot-chat"
+      ],
+      "includePatterns": [
+        "*.md",
+        "*.log",
+        "*.json"
+      ],
+      "maxFileSizeMB": 10,
+      "outputPrefix": "instruction-issue"
+    },
+    "general": {
+      "description": "General bugs or unexpected behavior",
+      "logPaths": [
+        "%APPDATA%\\Code\\logs",
+        ".vscode",
+        "Output"
+      ],
+      "includePatterns": [
+        "*.log",
+        "*.json",
+        "*.txt",
+        "*.csv"
+      ],
+      "maxFileSizeMB": 20,
+      "outputPrefix": "general-bug"
+    }
+  },
+  "globalSettings": {
+    "outputDirectory": "BugReports",
+    "createTimestampedFolder": true,
+    "includeSystemInfo": true,
+    "compressOutput": true
+  }
+}

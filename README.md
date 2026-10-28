@@ -55,7 +55,91 @@ GitHubCopilot-Test-Generation is a lightweight yet powerful tool designed to **a
 * 🛠️ Customize and contribute! Build your own prompts if needed.
 
 ---
+## 🔍 Helcurt Agent - Remote Machine Monitoring
 
+**Monitor remote machines for errors and warnings directly from VS Code!**
+
+Helcurt is a specialized VS Code agent that allows you to:
+* 📂 **Monitor log files** on remote machines
+* ⚠️ **Detect errors and warnings** automatically
+* 💊 **Check system health** (CPU, memory, disk space)
+* 📊 **Access Windows Event Logs** 
+* 🔎 **Search through logs** with custom patterns
+
+### Quick Setup
+
+1. **Build the executable:**
+   ```bash
+   cd helcurt-mcp-server
+   npm install
+   npm run build
+   ```
+
+2. **Deploy to target machine:**
+   - Copy `helcurt-server.exe` to your target machine
+   - Create `helcurt-config.json` with monitored folders:
+   ```json
+   {
+     "monitoredFolders": [
+       "C:\\Logs\\Application",
+       "C:\\ProgramData\\YourApp\\Logs"
+     ]
+   }
+   ```
+
+3. **Configure VS Code:**
+   Add to your `settings.json`:
+   ```json
+   {
+     "github.copilot.chat.mcp.servers": {
+       "helcurt": {
+         "command": "C:\\path\\to\\helcurt-server.exe"
+       }
+     }
+   }
+   ```
+
+4. **Use in VS Code Chat:**
+   ```
+   @helcurt check for errors in the last hour
+   @helcurt get system health status
+   @helcurt scan logs for "connection timeout"
+   ```
+
+📖 **Full Documentation:**
+- [MCP Server README](helcurt-mcp-server/README.md)
+- [Deployment Guide](helcurt-mcp-server/DEPLOYMENT.md)
+- [Configuration Guide](helcurt-mcp-server/CONFIG.md)
+- [Agent Definition](.github/agents/helcurt.agent.md)
+
+---## 🐛 Bug Reporting Made Easy
+
+Encountered an issue? We've got you covered! The **Bug Report Log Extraction Tool** automatically collects relevant logs and system information to help us debug faster.
+
+**Quick Usage:**
+```bash
+# Windows
+Utils\extract-bug-logs.bat test-generation-failure
+
+# Python (cross-platform)
+python Utils/extract-bug-logs.py test-generation-failure
+
+# PowerShell
+.\Utils\extract-bug-logs.ps1 test-generation-failure
+```
+
+The tool creates a ZIP file with all relevant logs based on your bug type. Simply attach it to your bug report!
+
+**Available Bug Types:**
+- `test-generation-failure` - Test generation not working
+- `output-format-issue` - CSV formatting problems
+- `copilot-mcp-error` - Azure DevOps MCP integration issues
+- `instruction-not-working` - Instructions not being followed
+- `general` - Other bugs or unexpected behavior
+
+📖 See the full documentation in [Utils/README.md](Utils/README.md)
+
+---
 ## 💡 Want Project-Specific Instructions?
 
 Every project is unique. While this repo gives you a solid head start, we **encourage you to fork and tailor it** for your specific testing needs. Build instructions that match your product’s personality and complexity!
