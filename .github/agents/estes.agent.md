@@ -13,109 +13,76 @@ Estes is a specialized agent designed to:
 
 ## DeltaV Areas
 
+Folders below were verified on this machine (2026-10-29) and match `monitoredFolders` in `C:\Tools\Helcurt\RemoteDeploy\helcurt-config.json`. Areas marked "No verified folders" had no existing log folder; add one when found. Area assignment is an estimate.
+
 ### 1. Control Modules
 **Description:** Control module execution, logic, and runtime
 **Folders:**
-- `C:\DeltaV\Logs\ControlModules`
-- `C:\DeltaV\Runtime\CM\Logs`
-- `C:\ProgramData\DeltaV\Control\Diagnostics`
-- `D:\DeltaV\CM\ErrorLogs`
+- No verified folders
 
 ### 2. Batch Operations
 **Description:** Batch execution, recipes, and campaign logs
 **Folders:**
-- `C:\DeltaV\Batch\Logs`
-- `C:\DeltaV\Batch\Recipes\Logs`
-- `C:\ProgramData\DeltaV\Batch\Diagnostics`
-- `D:\DeltaV\Batch\Reports`
-- `C:\DeltaV\Batch\Audit`
+- `D:\DeltaV\DVData\Batch\Logs`
 
 ### 3. Alarms & Events
 **Description:** Alarm history, event logs, and notifications
 **Folders:**
-- `C:\DeltaV\Alarms\Logs`
-- `C:\DeltaV\Events\History`
-- `C:\ProgramData\DeltaV\Alarms\Archive`
-- `D:\DeltaV\AlarmJournal`
+- `D:\DeltaV\DVData\AlarmMosaicLogs`
+- `D:\DeltaV\DVData\AlarmReports`
 
 ### 4. Historical Data
 **Description:** Process history, trends, and data collection
 **Folders:**
-- `C:\DeltaV\History\Logs`
-- `C:\DeltaV\PHD\Logs`
-- `D:\DeltaV\Historian\Data`
-- `C:\ProgramData\DeltaV\History\Diagnostics`
-- `E:\DeltaV\HistoricalArchive`
+- No verified folders
 
 ### 5. Configuration
 **Description:** Configuration changes, backups, and version control
 **Folders:**
-- `C:\DeltaV\Config\Logs`
-- `C:\DeltaV\DVExplorer\Logs`
-- `C:\DeltaV\Backup\Logs`
-- `C:\ProgramData\DeltaV\Configuration\Audit`
-- `D:\DeltaV\ConfigBackup`
+- `D:\DeltaV\DVData\Import-Export`
 
 ### 6. Diagnostics & System
 **Description:** System diagnostics, performance, and health monitoring
 **Folders:**
-- `C:\DeltaV\Diagnostics`
-- `C:\DeltaV\System\Logs`
-- `C:\ProgramData\DeltaV\Diagnostics`
-- `C:\DeltaV\Performance\Logs`
-- `D:\DeltaV\SystemHealth`
+- `C:\DeltaV\InstallLogs`
+- `D:\DeltaV\DVData\Diagnostics`
+- `D:\DeltaV\DVData\YellowPages\Diagnostics`
+- `D:\DeltaV\DVData\SysRegLogFiles`
+- `D:\DeltaV\DVData\Runtime\Logs`
+- `D:\DeltaV\DVData\IFSlogs`
+- `D:\DeltaV\ProgramData\Emerson\Logs`
 
 ### 7. Communication & Network
 **Description:** Network communication, OPC, and interface logs
 **Folders:**
-- `C:\DeltaV\Network\Logs`
-- `C:\DeltaV\OPC\Logs`
-- `C:\DeltaV\Communication\Diagnostics`
-- `C:\ProgramData\DeltaV\Network`
-- `D:\DeltaV\Interfaces\Logs`
+- `D:\DeltaV\ProgramData\Emerson\CIF\Logging`
+- `D:\DeltaV\DVData\DeltaV Web Services\Logs`
+- `C:\DeltaV\OPCLogs` (exists, currently empty)
 
 ### 8. Operator Interface
 **Description:** Operator stations, graphics, and user interface
 **Folders:**
-- `C:\DeltaV\Operate\Logs`
-- `C:\DeltaV\Graphics\Logs`
-- `C:\DeltaV\OpStation\Diagnostics`
-- `C:\ProgramData\DeltaV\Operate`
-- `D:\DeltaV\UserInterface\Logs`
+- No verified folders
 
 ### 9. Security & Audit
 **Description:** Security logs, user access, and audit trails
 **Folders:**
-- `C:\DeltaV\Security\Logs`
-- `C:\DeltaV\Audit\Logs`
-- `C:\ProgramData\DeltaV\Security\Audit`
-- `D:\DeltaV\AccessLogs`
-- `C:\DeltaV\UserManagement\Logs`
+- `D:\DeltaV\DVData\OPCUA\Server\Audit` (exists, currently empty)
 
 ### 10. Database & Archive
 **Description:** Database operations, backups, and archival
 **Folders:**
-- `C:\DeltaV\Database\Logs`
-- `C:\DeltaV\SQL\Logs`
-- `C:\ProgramData\DeltaV\Database\Backup`
-- `D:\DeltaV\Archive`
-- `E:\DeltaV\DatabaseBackup`
+- No verified folders
 
 ### 11. Application Station
 **Description:** Application workstation and engineering tools
 **Folders:**
-- `C:\DeltaV\AppStation\Logs`
-- `C:\DeltaV\Engineering\Logs`
-- `C:\ProgramData\DeltaV\AppStation\Diagnostics`
-- `D:\DeltaV\Engineering\Projects`
+- No verified folders
 
 ### 12. Device Integration (CHARMS)
 **Description:** CHARMS device integration and HART communication
 **Folders:**
-- `C:\DeltaV\CHARMS\Logs`
-- `C:\DeltaV\Devices\Logs`
-- `C:\ProgramData\DeltaV\CHARMS\Diagnostics`
-- `D:\DeltaV\DeviceManagement`
+- `D:\DeltaV\DVData\AddHartDeviceUtilLogs`
 
 ## Usage with Helcurt
 
