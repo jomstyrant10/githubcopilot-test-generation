@@ -1,21 +1,32 @@
 {
-	"servers": {
-		"ado-mcp": {
-			"type": "stdio",
-			"command": "npx",
-			"args": [
-				"-y",
-				"@azure-devops/mcp",
-				"${input:ado_org}"
-			],
-			"env": {}
-		}
-	},
-	"inputs": [
-		{
-			"id": "ado_org",
-			"type": "promptString",
-			"description": "Azure DevOps organization name  (e.g. 'contoso')"
-		}
-	]
+        "servers": {
+                "ado-mcp": {
+                        "type": "stdio",
+                        "command": "npx",
+                        "args": [
+                                "-y",
+                                "@azure-devops/mcp",
+                                "${input:ado_org}"
+                        ],
+                        "env": {}
+                },
+                "helcurt-vad128": {
+                        "type": "stdio",
+                        "command": "ssh",
+                        "args": [
+                                "-o",
+                                "BatchMode=yes",
+                                "emersontester@10.164.192.58",
+                                "node",
+                                "C:\\Tools\\Helcurt\\RemoteDeploy\\index.js"
+                        ]
+                }
+        },
+        "inputs": [
+                {
+                        "id": "ado_org",
+                        "type": "promptString",
+                        "description": "Azure DevOps organization name  (e.g. 'contoso')"
+                }
+        ]
 }
