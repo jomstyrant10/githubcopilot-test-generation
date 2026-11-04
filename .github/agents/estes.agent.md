@@ -9,11 +9,14 @@ Estes is a specialized agent designed to:
 - Provide structured folder paths for monitoring
 - Help Helcurt focus on specific DeltaV subsystems
 - Map areas to their corresponding log and diagnostic locations
+- Map DeltaV Event Viewer logs/sources and Windows services to areas
 - Streamline area-based troubleshooting
 
 ## DeltaV Areas
 
 Folders below were verified on this machine (2026-10-29) and match `monitoredFolders` in `C:\Tools\Helcurt\RemoteDeploy\helcurt-config.json`. Areas marked "No verified folders" had no existing log folder; add one when found. Area assignment is an estimate.
+
+Event Viewer entries were verified on this machine (2026-11-04) with `Get-WinEvent -ListProvider`. A source is either a dedicated log (for example `DeltaV Security`) or a provider inside the `Application` log (for example `Application` / `DVBManager`). Only Critical and Error events matter for error checks; Warning events are optional. Use `helcurt_get_events` with the log name for dedicated logs; it filters by log and level only, not by provider.
 
 ### 1. Control Modules
 **Description:** Control module execution, logic, and runtime
@@ -25,21 +28,33 @@ Folders below were verified on this machine (2026-10-29) and match `monitoredFol
 **Folders:**
 - `D:\DeltaV\DVData\Batch\Logs`
 
+**Event Viewer:**
+- `Application` log, sources `DVBManager`, `DVBRuntime`, `DVBHelper`, `DVBSim`, `DVBSPS`
+
 ### 3. Alarms & Events
 **Description:** Alarm history, event logs, and notifications
 **Folders:**
 - `D:\DeltaV\DVData\AlarmMosaicLogs`
 - `D:\DeltaV\DVData\AlarmReports`
 
+**Event Viewer:**
+- `DeltaVChronicle` log
+
 ### 4. Historical Data
 **Description:** Process history, trends, and data collection
 **Folders:**
 - No verified folders
 
+**Event Viewer:**
+- `Application` log, source `DvHistorianServerHost_2`
+
 ### 5. Configuration
 **Description:** Configuration changes, backups, and version control
 **Folders:**
 - `D:\DeltaV\DVData\Import-Export`
+
+**Event Viewer:**
+- `Application` log, source `Exploring DeltaV`
 
 ### 6. Diagnostics & System
 **Description:** System diagnostics, performance, and health monitoring
@@ -52,6 +67,12 @@ Folders below were verified on this machine (2026-10-29) and match `monitoredFol
 - `D:\DeltaV\DVData\IFSlogs`
 - `D:\DeltaV\ProgramData\Emerson\Logs`
 
+**Event Viewer:**
+- `DVTaskService` log
+- `DeltaV_Trace` log
+- `DeltaV Virtual Studio` log (source `DvsVmService`)
+- `Application` log, sources `DVSYS`, `DVTaskService-Init`, `RamService`
+
 ### 7. Communication & Network
 **Description:** Network communication, OPC, and interface logs
 **Folders:**
@@ -59,20 +80,34 @@ Folders below were verified on this machine (2026-10-29) and match `monitoredFol
 - `D:\DeltaV\DVData\DeltaV Web Services\Logs`
 - `C:\DeltaV\OPCLogs` (exists, currently empty)
 
+**Event Viewer:**
+- `Application` log, sources `DVBOpcSvr`, `DvOpcUaServer`, `DeltaV OPC UA Server`, `DeltaV_OPC.NET`, `DeltaV_OPC.NETDiscovery`, `EmersonProcess.Web.Services`
+
 ### 8. Operator Interface
 **Description:** Operator stations, graphics, and user interface
 **Folders:**
 - No verified folders
+
+**Event Viewer:**
+- `DeltaV Live` log
 
 ### 9. Security & Audit
 **Description:** Security logs, user access, and audit trails
 **Folders:**
 - `D:\DeltaV\DVData\OPCUA\Server\Audit` (exists, currently empty)
 
+**Event Viewer:**
+- `DeltaV Security` log
+- `DVSecBroker` log
+- `Application` log, source `DVSecBroker-Init`
+
 ### 10. Database & Archive
 **Description:** Database operations, backups, and archival
 **Folders:**
 - No verified folders
+
+**Event Viewer:**
+- `Application` log, sources `DvDbServer`, `MSSQL$DELTAV_INSTANCE`, `MSSQL$DELTAV_ADV_CNTRL`, `MSSQL$DELTAV_CHRONICLE`
 
 ### 11. Application Station
 **Description:** Application workstation and engineering tools
@@ -83,6 +118,47 @@ Folders below were verified on this machine (2026-10-29) and match `monitoredFol
 **Description:** CHARMS device integration and HART communication
 **Folders:**
 - `D:\DeltaV\DVData\AddHartDeviceUtilLogs`
+
+**Event Viewer:**
+- `Application` log, sources `AmsCommService`, `AmsFdiService`, `AmsHierService`, `AmsServerStarter`, `AmsUCService`
+
+## DeltaV Windows Services
+
+Services related to DeltaV on this machine (checked 2026-11-04). Their start/stop and failure messages appear in Event Viewer under the sources listed above (the service name is usually the source name). Area assignment is an estimate.
+
+| Service name | Display name | Area | State / start type |
+|--------------|--------------|------|--------------------|
+| `DVBManager` | DeltaV Batch Manager | Batch Operations | Stopped / Manual |
+| `BatchCampaignMgr` | DeltaV Campaign Manager | Batch Operations | Stopped / Manual |
+| `EventChronicleManager` | EventChronicleManager | Alarms & Events | Stopped / Manual |
+| `RunTimeRecorder` | RunTimeRecorder | Historical Data | Stopped / Auto |
+| `ADDB Config Service` | DeltaV ADDB Config Service | Configuration | Running / Auto |
+| `Uca.ConfigDo.DbService` | DeltaV Configuration Server | Configuration | Running / Auto |
+| `ConfigExchangeService` | ConfigExchangeService | Configuration | Stopped / Auto |
+| `DeltaV` | DeltaV | Diagnostics & System | Running / Auto |
+| `Diagnostics.Server` | DeltaV Diagnostics Information Service Host | Diagnostics & System | Running / Auto |
+| `Framework.FileServices` | DeltaV File Server | Diagnostics & System | Running / Auto |
+| `Do.Services.Session` | DeltaV DO Session Server | Diagnostics & System | Running / Auto |
+| `Rts.Core.Server` | DeltaV RTS Service | Diagnostics & System | Running / Auto |
+| `Rts.Do.Site.CommissioningServer` | DeltaV Site Host | Diagnostics & System | Running / Auto |
+| `DvsVmService` | DvsVmService | Diagnostics & System | Running / Auto |
+| `RamService` | Remote Application Monitor | Diagnostics & System | Stopped / Auto |
+| `NetworkTimeProtocol` | NetworkTimeProtocol | Diagnostics & System | Running / Auto |
+| `SystemRegistrationAutoRun` | SystemRegistrationAutoRun | Diagnostics & System | Stopped / Manual |
+| `DvOpcUaServer` | DeltaV OPC UA Server | Communication & Network | Running / Auto |
+| `DeltaV_OPC.NET` | DeltaV OPC .NET Server | Communication & Network | Stopped / Auto |
+| `DeltaV_OPC.NETDiscovery` | DeltaV OPC .NET Discovery | Communication & Network | Stopped / Auto |
+| `PlatcommStarterService` | Platcomm Starter Service | Communication & Network | Running / Auto |
+| `TcpRedun` | TCP Redundancy Service | Communication & Network | Stopped / Manual |
+| `Fix` | Fix | Operator Interface | Running / Auto |
+| `DVSecBroker` | DeltaV API Broker Service | Security & Audit | Running / Auto |
+| `SASecBroker` | Standalone API Broker Service | Security & Audit | Running / Auto |
+| `DvDbServer` | DeltaV Database Server | Database & Archive | Stopped / Manual |
+| `MSSQL$DELTAV_INSTANCE` | SQL Server (DELTAV_INSTANCE) | Database & Archive | Running / Auto |
+| `MSSQL$DELTAV_ADV_CNTRL` | SQL Server (DELTAV_ADV_CNTRL) | Database & Archive | Running / Auto |
+| `MSSQL$DELTAV_CHRONICLE` | SQL Server (DELTAV_CHRONICLE) | Database & Archive | Stopped / Manual |
+
+Check a service's state with `Get-Service -Name '<service name>'`. Services set to Auto but Stopped (`RunTimeRecorder`, `ConfigExchangeService`, `RamService`, `DeltaV_OPC.NET`, `DeltaV_OPC.NETDiscovery`) may be expected on this machine; confirm before treating them as faults.
 
 ## Usage with Helcurt
 
