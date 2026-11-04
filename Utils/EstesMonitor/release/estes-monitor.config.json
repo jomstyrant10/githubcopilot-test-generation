@@ -1,0 +1,72 @@
+{
+  "pollSeconds": 30,
+  "initialScanHours": 24,
+  "includeWarnings": false,
+  "maxAlertGroupsPerFile": 20,
+  "outputDir": "logs",
+  "filePatterns": ["*.log", "*.txt", "*.out", "*.err"],
+  "errorWords": ["ERROR", "CRITICAL", "FATAL", "EXCEPTION", "FAILED", "CRASH", "TIMEOUT"],
+  "warningWords": ["WARNING", "WARN", "CAUTION", "DEPRECATED"],
+  "ignoreRegex": [
+    "TG='\\$error'",
+    "NAME='Failed OPEN'",
+    "DSC='Communication Error'",
+    "Failed processing 0 files",
+    "Windows Error Reporting"
+  ],
+  "areas": {
+    "Control Modules": [],
+    "Batch Operations": [
+      "D:\\DeltaV\\DVData\\Batch\\Logs",
+      "eventlog:Application!DVBManager,DVBRuntime,DVBHelper,DVBSim,DVBSPS"
+    ],
+    "Alarms & Events": [
+      "D:\\DeltaV\\DVData\\AlarmMosaicLogs",
+      "D:\\DeltaV\\DVData\\AlarmReports",
+      "eventlog:DeltaVChronicle"
+    ],
+    "Historical Data": [
+      "eventlog:Application!DvHistorianServerHost_2"
+    ],
+    "Configuration": [
+      "D:\\DeltaV\\DVData\\Import-Export",
+      "eventlog:Application!Exploring DeltaV"
+    ],
+    "Diagnostics & System": [
+      "C:\\DeltaV\\InstallLogs",
+      "D:\\DeltaV\\DVData\\Diagnostics",
+      "D:\\DeltaV\\DVData\\YellowPages\\Diagnostics",
+      "D:\\DeltaV\\DVData\\SysRegLogFiles",
+      "D:\\DeltaV\\DVData\\Runtime\\Logs",
+      "D:\\DeltaV\\DVData\\IFSlogs",
+      "D:\\DeltaV\\ProgramData\\Emerson\\Logs",
+      "eventlog:DVTaskService",
+      "eventlog:DeltaV_Trace",
+      "eventlog:DeltaV Virtual Studio",
+      "eventlog:Application!DVSYS,DVTaskService-Init,RamService"
+    ],
+    "Communication & Network": [
+      "D:\\DeltaV\\ProgramData\\Emerson\\CIF\\Logging",
+      "D:\\DeltaV\\DVData\\DeltaV Web Services\\Logs",
+      "C:\\DeltaV\\OPCLogs",
+      "eventlog:Application!DVBOpcSvr,DvOpcUaServer,DeltaV OPC UA Server,DeltaV_OPC.NET,DeltaV_OPC.NETDiscovery,EmersonProcess.Web.Services"
+    ],
+    "Operator Interface": [
+      "eventlog:DeltaV Live"
+    ],
+    "Security & Audit": [
+      "D:\\DeltaV\\DVData\\OPCUA\\Server\\Audit",
+      "eventlog:DeltaV Security",
+      "eventlog:DVSecBroker",
+      "eventlog:Application!DVSecBroker-Init"
+    ],
+    "Database & Archive": [
+      "eventlog:Application!DvDbServer,MSSQL$DELTAV_INSTANCE,MSSQL$DELTAV_ADV_CNTRL,MSSQL$DELTAV_CHRONICLE"
+    ],
+    "Application Station": [],
+    "Device Integration (CHARMS)": [
+      "D:\\DeltaV\\DVData\\AddHartDeviceUtilLogs",
+      "eventlog:Application!AmsCommService,AmsFdiService,AmsHierService,AmsServerStarter,AmsUCService"
+    ]
+  }
+}
