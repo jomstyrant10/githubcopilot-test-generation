@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -19,7 +20,13 @@ namespace EstesMonitor
         public int InitialScanHours = 24;
         public int MaxAlertGroupsPerFile = 20;
         public bool IncludeWarnings;
+        public bool DedupePerDay = true;
         public string OutputDir = "logs";
+        public string BackupDir = "backups";
+        public bool AutoBackup;
+        public int BackupIntervalMinutes = 15;
+        public int KeepBackups = 30;
+        public int MaxBackupFileMB = 200;
         public List<string> FilePatterns = new List<string>();
         public List<string> ErrorWords = new List<string>();
         public List<string> WarningWords = new List<string>();
@@ -89,8 +96,14 @@ namespace EstesMonitor
   ""pollSeconds"": 30,
   ""initialScanHours"": 24,
   ""includeWarnings"": false,
+  ""dedupePerDay"": true,
   ""maxAlertGroupsPerFile"": 20,
   ""outputDir"": ""logs"",
+  ""backupDir"": ""backups"",
+  ""autoBackup"": false,
+  ""backupIntervalMinutes"": 15,
+  ""keepBackups"": 30,
+  ""maxBackupFileMB"": 200,
   ""filePatterns"": [""*.log"", ""*.txt"", ""*.out"", ""*.err""],
   ""errorWords"": [""ERROR"", ""CRITICAL"", ""FATAL"", ""EXCEPTION"", ""FAILED"", ""CRASH"", ""TIMEOUT""],
   ""warningWords"": [""WARNING"", ""WARN"", ""CAUTION"", ""DEPRECATED""],
@@ -196,6 +209,12 @@ namespace EstesMonitor
             s.MaxAlertGroupsPerFile = GetInt(root, "maxAlertGroupsPerFile", s.MaxAlertGroupsPerFile);
             s.IncludeWarnings = GetBool(root, "includeWarnings", false);
             s.OutputDir = GetString(root, "outputDir", s.OutputDir);
+            s.BackupDir = GetString(root, "backupDir", s.BackupDir);
+            s.AutoBackup = GetBool(root, "autoBackup", false);
+            s.DedupePerDay = GetBool(root, "dedupePerDay", true);
+            s.BackupIntervalMinutes = Math.Max(1, GetInt(root, "backupIntervalMinutes", s.BackupIntervalMinutes));
+            s.KeepBackups = Math.Max(0, GetInt(root, "keepBackups", s.KeepBackups));
+            s.MaxBackupFileMB = Math.Max(0, GetInt(root, "maxBackupFileMB", s.MaxBackupFileMB));
             s.FilePatterns = GetList(root, "filePatterns");
             s.ErrorWords = GetList(root, "errorWords");
             s.WarningWords = GetList(root, "warningWords");
@@ -254,6 +273,384 @@ namespace EstesMonitor
         }
     }
 
+    // One row of results: a message found in a file or an Event Viewer entry.
+    internal sealed class Finding
+    {
+        public int Seq;
+        public DateTime Time;
+        public string Severity;
+        public string Area;
+        public string File;
+        public long Line = -1;
+        public int Count = 1;
+        public string Message;
+
+        public static Finding FromGroup(AlertGroup g, DateTime when)
+        {
+            Finding f = new Finding();
+            f.Time = when;
+            f.Severity = g.Severity;
+            f.Area = g.Area;
+            f.File = g.File;
+            f.Line = g.FirstLine;
+            f.Count = g.Count;
+            f.Message = g.Sample;
+            return f;
+        }
+
+        public bool IsEventLog
+        {
+            get { return File != null && File.StartsWith("Event Log:", StringComparison.Ordinal); }
+        }
+    }
+
+    internal static class CsvUtil
+    {
+        public const string Header = "Time,Severity,Area,File,Line,Count,Message";
+
+        public static string Row(Finding f)
+        {
+            return string.Join(",", new string[]
+            {
+                Quote(f.Time.ToString("yyyy-MM-dd HH:mm:ss")),
+                Quote(f.Severity),
+                Quote(f.Area),
+                Quote(f.File),
+                f.Line >= 0 ? f.Line.ToString() : "",
+                f.Severity == "INFO" ? "" : f.Count.ToString(),
+                Quote(f.Message)
+            });
+        }
+
+        // Quotes as needed and neutralizes leading = + - @ so Excel does not run log text as a formula.
+        public static string Quote(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            if ("=+-@\t\r".IndexOf(s[0]) >= 0) s = "'" + s;
+            if (s.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0) s = "\"" + s.Replace("\"", "\"\"") + "\"";
+            return s;
+        }
+    }
+
+    internal sealed class BackupResult
+    {
+        public string ZipPath;
+        public int FilesAdded;
+        public int FilesSkipped;
+        public int Findings;
+        public long BytesCopied;
+        public int Pruned;
+        public List<string> Notes = new List<string>();
+    }
+
+    // Copies the files that contain findings into a zip. Source files are only read, never changed or deleted.
+    internal static class BackupTool
+    {
+        public const string Prefix = "EstesErrors_";
+
+        public static string ResolveDir(string configured)
+        {
+            return Path.IsPathRooted(configured) ? configured : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, configured);
+        }
+
+        public static List<FileInfo> ListBackups(string dir)
+        {
+            if (!Directory.Exists(dir)) return new List<FileInfo>();
+            return new DirectoryInfo(dir).GetFiles(Prefix + "*.zip")
+                .Where(f => f.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .ToList();
+        }
+
+        // Deletes only this tool's own output files (never anything else in the folder).
+        public static int DeleteFiles(IEnumerable<FileInfo> files, out long bytes)
+        {
+            int n = 0;
+            bytes = 0;
+            foreach (FileInfo f in files)
+            {
+                try { long len = f.Length; f.Delete(); n++; bytes += len; }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            return n;
+        }
+
+        public static List<FileInfo> ListAlertLogs(string dir)
+        {
+            if (!Directory.Exists(dir)) return new List<FileInfo>();
+            List<FileInfo> r = new DirectoryInfo(dir).GetFiles("estes-alerts-*.log")
+                .Where(f => f.Extension.Equals(".log", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            // The daily-duplicate memory goes with the alert logs, so cleared entries can be reported again.
+            string state = Path.Combine(dir, DailyDeduper.StateFileName);
+            if (File.Exists(state)) r.Add(new FileInfo(state));
+            return r;
+        }
+
+        // Keeps the newest 'keep' backups and deletes the rest; keep <= 0 keeps everything.
+        public static int Prune(string dir, int keep)
+        {
+            if (keep <= 0) return 0;
+            long bytes;
+            return DeleteFiles(ListBackups(dir).Skip(keep).ToList(), out bytes);
+        }
+
+        static string EntryPath(string path)
+        {
+            string p = path.Replace('\\', '/');
+            if (p.StartsWith("//", StringComparison.Ordinal)) return "UNC/" + p.TrimStart('/');
+            if (p.Length >= 2 && p[1] == ':') return p.Substring(0, 1) + "/" + p.Substring(2).TrimStart('/');
+            return p.TrimStart('/');
+        }
+
+        static void AddText(ZipArchive zip, string name, string text, bool bom)
+        {
+            ZipArchiveEntry e = zip.CreateEntry(name, CompressionLevel.Optimal);
+            byte[] pre = bom ? new UTF8Encoding(true).GetPreamble() : new byte[0];
+            byte[] body = new UTF8Encoding(false).GetBytes(text);
+            using (Stream s = e.Open())
+            {
+                s.Write(pre, 0, pre.Length);
+                s.Write(body, 0, body.Length);
+            }
+        }
+
+        // Returns null when there is nothing to back up.
+        public static BackupResult CreateZip(string dir, IList<Finding> findings, int maxFileMB, int keep)
+        {
+            List<Finding> items = findings.Where(f => f.Severity != "INFO").ToList();
+            if (items.Count == 0) return null;
+
+            BackupResult r = new BackupResult();
+            r.Findings = items.Count;
+
+            try
+            {
+                Directory.CreateDirectory(dir);
+                using (File.Create(Path.Combine(dir, ".write-test"), 1, FileOptions.DeleteOnClose)) { }
+            }
+            catch (Exception)
+            {
+                dir = Path.Combine(Path.GetTempPath(), "EstesMonitor", "backups");
+                Directory.CreateDirectory(dir);
+                r.Notes.Add("Backup folder is not writable; used " + dir);
+            }
+
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string baseName = Prefix + Environment.MachineName + "_" + stamp;
+            string zipPath = Path.Combine(dir, baseName + ".zip");
+            for (int i = 2; File.Exists(zipPath); i++) zipPath = Path.Combine(dir, baseName + "_" + i + ".zip");
+            r.ZipPath = zipPath;
+
+            long maxBytes = maxFileMB > 0 ? maxFileMB * 1024L * 1024L : long.MaxValue;
+            List<string> files = items.Where(f => !f.IsEventLog && !string.IsNullOrEmpty(f.File))
+                .Select(f => f.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            using (FileStream zfs = new FileStream(zipPath, FileMode.CreateNew))
+            using (ZipArchive zip = new ZipArchive(zfs, ZipArchiveMode.Create))
+            {
+                foreach (string file in files)
+                {
+                    try
+                    {
+                        FileInfo fi = new FileInfo(file);
+                        if (!fi.Exists) { r.FilesSkipped++; r.Notes.Add("Missing: " + file); continue; }
+                        if (fi.Length > maxBytes) { r.FilesSkipped++; r.Notes.Add("Skipped (over " + maxFileMB + " MB): " + file); continue; }
+
+                        using (FileStream src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                        {
+                            ZipArchiveEntry entry = zip.CreateEntry("files/" + EntryPath(file), CompressionLevel.Optimal);
+                            DateTime t = fi.LastWriteTime;
+                            if (t.Year >= 1980 && t.Year < 2107) entry.LastWriteTime = new DateTimeOffset(t);
+                            using (Stream dst = entry.Open()) { src.CopyTo(dst); }
+                        }
+                        r.FilesAdded++;
+                        r.BytesCopied += fi.Length;
+                    }
+                    catch (IOException ex) { r.FilesSkipped++; r.Notes.Add("Could not read " + file + ": " + ex.Message); }
+                    catch (UnauthorizedAccessException ex) { r.FilesSkipped++; r.Notes.Add("No access to " + file + ": " + ex.Message); }
+                }
+
+                StringBuilder csv = new StringBuilder(CsvUtil.Header).AppendLine();
+                foreach (Finding f in items) csv.AppendLine(CsvUtil.Row(f));
+                AddText(zip, "findings.csv", csv.ToString(), true);
+
+                StringBuilder sum = new StringBuilder();
+                sum.AppendLine("Estes Monitor error backup");
+                sum.AppendLine("Machine : " + Environment.MachineName);
+                sum.AppendLine("Created : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                sum.AppendLine("Findings: " + items.Count + " (see findings.csv)");
+                sum.AppendLine("Files copied: " + r.FilesAdded + ", skipped: " + r.FilesSkipped);
+                sum.AppendLine("Event Viewer findings are listed in findings.csv only (no files to copy).");
+                sum.AppendLine("Copies are under files/<drive>/<original path>.");
+                foreach (string n in r.Notes) sum.AppendLine("- " + n);
+                AddText(zip, "summary.txt", sum.ToString(), false);
+            }
+
+            r.Pruned = Prune(Path.GetDirectoryName(zipPath), keep);
+            return r;
+        }
+    }
+
+    // Keeps one entry per unique message per day. The same message in several files is one entry
+    // (counts are added together); a message already reported today is dropped. The memory can be
+    // kept in a small file so repeated runs on the same day stay quiet; it resets at midnight.
+    internal sealed class DailyDeduper
+    {
+        public const string StateFileName = "estes-dedupe-state.txt";
+
+        readonly HashSet<ulong> seen = new HashSet<ulong>();
+        readonly object gate = new object();
+        readonly string stateFile; // null = memory only
+        string day;
+        bool fileIsToday;
+
+        public DailyDeduper(string stateFile)
+        {
+            this.stateFile = stateFile;
+            day = Today(DateTime.Now);
+            Load();
+        }
+
+        static string Today(DateTime t)
+        {
+            return t.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        public void Reset()
+        {
+            lock (gate)
+            {
+                seen.Clear();
+                day = Today(DateTime.Now);
+                fileIsToday = false;
+            }
+        }
+
+        // Returns the groups that are new today; 'hidden' counts the ones left out.
+        public List<AlertGroup> Filter(List<AlertGroup> groups, DateTime now, out int hidden)
+        {
+            lock (gate)
+            {
+                return FilterLocked(groups, now, out hidden);
+            }
+        }
+
+        List<AlertGroup> FilterLocked(List<AlertGroup> groups, DateTime now, out int hidden)
+        {
+            hidden = 0;
+            string today = Today(now);
+            if (today != day)
+            {
+                seen.Clear();
+                day = today;
+                fileIsToday = false;
+            }
+
+            List<AlertGroup> kept = new List<AlertGroup>();
+            Dictionary<ulong, AlertGroup> keptByHash = new Dictionary<ulong, AlertGroup>();
+            foreach (AlertGroup g in groups
+                .OrderBy(x => x.Severity == "ERROR" ? 0 : 1)
+                .ThenBy(x => x.Area)
+                .ThenBy(x => x.File)
+                .ThenByDescending(x => x.Count))
+            {
+                ulong h = Hash(g);
+                AlertGroup first;
+                if (keptByHash.TryGetValue(h, out first)) { first.Count += g.Count; hidden++; continue; }
+                if (!seen.Add(h)) { hidden++; continue; }
+                keptByHash[h] = g;
+                kept.Add(g);
+                Append(h);
+            }
+            return kept;
+        }
+
+        // Event Viewer messages stay separate per log; file messages match across files.
+        static ulong Hash(AlertGroup g)
+        {
+            string scope = g.File != null && g.File.StartsWith("Event Log:", StringComparison.Ordinal) ? g.File : "";
+            string key = g.Severity + "|" + scope + "|" + MonitorEngine.Normalize(g.Sample);
+            unchecked
+            {
+                ulong h = 14695981039346656037UL; // FNV-1a
+                foreach (char c in key) { h ^= c; h *= 1099511628211UL; }
+                return h;
+            }
+        }
+
+        void Load()
+        {
+            if (stateFile == null || !File.Exists(stateFile)) return;
+            try
+            {
+                string[] lines = File.ReadAllLines(stateFile);
+                if (lines.Length == 0 || lines[0].Trim() != "day=" + day) return;
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    ulong h;
+                    if (ulong.TryParse(lines[i].Trim(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out h)) seen.Add(h);
+                }
+                fileIsToday = true;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        void Append(ulong h)
+        {
+            if (stateFile == null) return;
+            try
+            {
+                string line = h.ToString("x16", CultureInfo.InvariantCulture) + Environment.NewLine;
+                if (!fileIsToday)
+                {
+                    File.WriteAllText(stateFile, "day=" + day + Environment.NewLine + line, new UTF8Encoding(false));
+                    fileIsToday = true;
+                }
+                else File.AppendAllText(stateFile, line, new UTF8Encoding(false));
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    // Collects findings between backups so one zip covers everything since the last one.
+    internal sealed class ErrorCollector
+    {
+        const int MaxPending = 200000;
+        readonly List<Finding> pending = new List<Finding>();
+        DateTime lastBackup = DateTime.MinValue;
+
+        public int PendingCount { get { return pending.Count; } }
+
+        public void Add(IEnumerable<Finding> items)
+        {
+            foreach (Finding f in items)
+            {
+                if (f.Severity == "INFO") continue;
+                if (pending.Count >= MaxPending) break;
+                pending.Add(f);
+            }
+        }
+
+        public List<Finding> TakeIfDue(int intervalMinutes)
+        {
+            if (pending.Count == 0) return null;
+            if ((DateTime.Now - lastBackup).TotalMinutes < Math.Max(1, intervalMinutes)) return null;
+            return TakeAll();
+        }
+
+        public List<Finding> TakeAll()
+        {
+            List<Finding> r = new List<Finding>(pending);
+            pending.Clear();
+            lastBackup = DateTime.Now;
+            return r;
+        }
+    }
+
     internal sealed class MonitorEngine
     {
         const int MaxReadBytes = 8 * 1024 * 1024;
@@ -267,6 +664,12 @@ namespace EstesMonitor
         readonly HashSet<string> MissingReported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, EventState> EventStates = new Dictionary<string, EventState>(StringComparer.OrdinalIgnoreCase);
         static readonly Regex DigitsRx = new Regex(@"\d+", RegexOptions.Compiled);
+
+        // Numbers become # so "disk failed 5" and "disk failed 7" count as the same message.
+        public static string Normalize(string text)
+        {
+            return DigitsRx.Replace(text ?? "", "#");
+        }
 
         // Receives informational messages such as "folder not found".
         public Action<string> Log;
@@ -370,6 +773,7 @@ namespace EstesMonitor
         static bool IsOwnAlertFile(string path)
         {
             string name = Path.GetFileName(path);
+            if (name.Equals(DailyDeduper.StateFileName, StringComparison.OrdinalIgnoreCase)) return true;
             return name.StartsWith("estes-alerts-", StringComparison.OrdinalIgnoreCase)
                 && name.EndsWith(".log", StringComparison.OrdinalIgnoreCase);
         }

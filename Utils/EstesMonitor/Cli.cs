@@ -46,6 +46,8 @@ namespace EstesMonitor
             string configPath = null;
             string outOverride = null;
             bool once = false, warnings = false, list = false, writeConfig = false, force = false, help = false;
+            bool backup = false, clearBackups = false, clearAlerts = false, yes = false, noDedupe = false;
+            string backupDirOverride = null;
             bool hoursSet = false;
             int hours = 0;
             int pollOverride = 0;
@@ -63,6 +65,12 @@ namespace EstesMonitor
                     case "--write-config": writeConfig = true; break;
                     case "--force": force = true; break;
                     case "--out": outOverride = Next(args, ref i); break;
+                    case "--backup": backup = true; break;
+                    case "--no-dedupe": noDedupe = true; break;
+                    case "--backup-dir": backupDirOverride = Next(args, ref i); break;
+                    case "--clear-backups": clearBackups = true; break;
+                    case "--clear-alerts": clearAlerts = true; break;
+                    case "--yes": yes = true; break;
                     case "--interval": pollOverride = int.Parse(Next(args, ref i)); break;
                     case "--hours":
                         {
@@ -107,6 +115,11 @@ namespace EstesMonitor
             if (pollOverride > 0) S.PollSeconds = pollOverride;
             if (!hoursSet) hours = S.InitialScanHours;
             if (outOverride != null) S.OutputDir = outOverride;
+            if (backupDirOverride != null) S.BackupDir = backupDirOverride;
+            if (backup) S.AutoBackup = true;
+            if (noDedupe) S.DedupePerDay = false;
+
+            if (clearBackups || clearAlerts) return RunClear(clearBackups, clearAlerts, yes);
 
             List<KeyValuePair<string, List<string>>> areas = S.Areas;
             if (areaFilter.Count > 0)
@@ -138,6 +151,10 @@ namespace EstesMonitor
             Console.WriteLine("Start    : " + window);
             Console.WriteLine("Severity : errors" + (S.IncludeWarnings ? " + warnings" : ""));
             Console.WriteLine("Alerts to: " + AlertDir);
+            Console.WriteLine("Backup   : " + (S.AutoBackup
+                ? "zip copies of files with errors -> " + BackupTool.ResolveDir(S.BackupDir) + (once ? "" : " (at most every " + S.BackupIntervalMinutes + " min)")
+                : "off (use --backup)"));
+            Console.WriteLine("Duplicates: " + (S.DedupePerDay ? "one entry per message per day (memory: " + DailyDeduper.StateFileName + ")" : "off (every cycle is reported)"));
             Console.WriteLine("Areas    : " + areas.Count + " (" + areas.Sum(x => x.Value.Count) + " folders / event sources)");
             Console.WriteLine();
             AppendAlertFile("=== Estes Monitor " + Version + " started on " + Environment.MachineName + " at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ===");
@@ -148,32 +165,106 @@ namespace EstesMonitor
             bool initial = true;
             int cycle = 0;
             long totalErrorLines = 0;
+            long totalHidden = 0;
+            DailyDeduper deduper = S.DedupePerDay ? new DailyDeduper(Path.Combine(AlertDir, DailyDeduper.StateFileName)) : null;
+            ErrorCollector collector = new ErrorCollector();
             while (true)
             {
                 int files;
                 DateTime now = DateTime.Now;
                 List<AlertGroup> found = engine.RunCycle(areas, initial, cutoff, out files);
-                long errLines = Report(found, now);
+
+                // Backups cover every file with errors, so copy the findings before duplicates are dropped.
+                List<Finding> forBackup = S.AutoBackup && found.Count > 0 ? found.Select(g => Finding.FromGroup(g, now)).ToList() : null;
+
+                int hidden = 0;
+                List<AlertGroup> shown = deduper != null ? deduper.Filter(found, now, out hidden) : found;
+                totalHidden += hidden;
+                long errLines = Report(shown, now);
                 totalErrorLines += errLines;
                 initial = false;
                 cycle++;
 
+                if (forBackup != null)
+                {
+                    collector.Add(forBackup);
+                    List<Finding> due = once ? collector.TakeAll() : collector.TakeIfDue(S.BackupIntervalMinutes);
+                    if (due != null) RunBackup(due);
+                }
+
                 if (once)
                 {
                     Console.WriteLine();
-                    Console.WriteLine("Scanned " + files + " files and " + engine.EventSourcesQueried + " Event Viewer sources. Error lines/events found: " + errLines);
+                    Console.WriteLine("Scanned " + files + " files and " + engine.EventSourcesQueried + " Event Viewer sources. Error lines/events found: " + errLines
+                        + (deduper != null ? " (" + hidden + " duplicate message(s) left out: one entry per message per day)" : ""));
                     return errLines > 0 ? 1 : 0;
                 }
 
                 if (cycle % 10 == 0)
-                    WriteConsole(now.ToString("yyyy-MM-dd HH:mm:ss") + " [OK] watching " + files + " files; error lines so far: " + totalErrorLines, ConsoleColor.DarkGray);
+                    WriteConsole(now.ToString("yyyy-MM-dd HH:mm:ss") + " [OK] watching " + files + " files; error lines so far: " + totalErrorLines
+                        + (deduper != null ? "; duplicates left out: " + totalHidden : ""), ConsoleColor.DarkGray);
 
                 if (stop.WaitOne(S.PollSeconds * 1000)) break;
+            }
+
+            if (S.AutoBackup)
+            {
+                List<Finding> rest = collector.TakeAll();
+                if (rest.Count > 0) RunBackup(rest);
             }
 
             string stopped = "=== Estes Monitor stopped at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ===";
             AppendAlertFile(stopped);
             Console.WriteLine(stopped);
+            return 0;
+        }
+
+        static void RunBackup(List<Finding> items)
+        {
+            try
+            {
+                BackupResult r = BackupTool.CreateZip(BackupTool.ResolveDir(S.BackupDir), items, S.MaxBackupFileMB, S.KeepBackups);
+                if (r == null) return;
+                string line = string.Format("{0:yyyy-MM-dd HH:mm:ss} [BACKUP] {1} ({2} files, {3:N1} MB copied{4}{5})",
+                    DateTime.Now, r.ZipPath, r.FilesAdded, r.BytesCopied / 1048576.0,
+                    r.FilesSkipped > 0 ? ", " + r.FilesSkipped + " skipped" : "",
+                    r.Pruned > 0 ? ", " + r.Pruned + " old backup(s) removed" : "");
+                WriteConsole(line, ConsoleColor.Green);
+                AppendAlertFile(line);
+                foreach (string n in r.Notes) WriteConsole("  " + n, ConsoleColor.DarkGray);
+            }
+            catch (Exception ex)
+            {
+                WriteConsole("Backup failed: " + ex.Message, ConsoleColor.Red);
+            }
+        }
+
+        // Only ever deletes this tool's own output files.
+        static int RunClear(bool backups, bool alerts, bool yes)
+        {
+            List<FileInfo> targets = new List<FileInfo>();
+            if (backups) targets.AddRange(BackupTool.ListBackups(BackupTool.ResolveDir(S.BackupDir)));
+            if (alerts) targets.AddRange(BackupTool.ListAlertLogs(BackupTool.ResolveDir(S.OutputDir)));
+            if (targets.Count == 0) { Console.WriteLine("Nothing to clear."); return 0; }
+
+            Console.WriteLine("Will delete " + targets.Count + " file(s), " + (targets.Sum(f => f.Length) / 1048576.0).ToString("N1") + " MB:");
+            foreach (FileInfo f in targets.Take(10)) Console.WriteLine("  " + f.FullName);
+            if (targets.Count > 10) Console.WriteLine("  ... and " + (targets.Count - 10) + " more");
+
+            if (!yes)
+            {
+                Console.Write("Delete them? [y/N] ");
+                string answer = Console.ReadLine();
+                if (answer == null || !answer.Trim().StartsWith("y", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("Cancelled.");
+                    return 1;
+                }
+            }
+
+            long freed;
+            int deleted = BackupTool.DeleteFiles(targets, out freed);
+            Console.WriteLine("Deleted " + deleted + " file(s), " + (freed / 1048576.0).ToString("N1") + " MB.");
             return 0;
         }
 
@@ -191,6 +282,15 @@ namespace EstesMonitor
             Console.WriteLine("  --warnings          Also report warning words (WARNING, WARN, CAUTION, ...)");
             Console.WriteLine("  --interval <sec>    Polling interval in continuous mode");
             Console.WriteLine("  --out <dir>         Folder for the alert log files (default: logs next to the exe)");
+            Console.WriteLine("  --backup            Zip copies of every file that has errors (after --once, or while");
+            Console.WriteLine("                      monitoring at most every backupIntervalMinutes, default 15)");
+            Console.WriteLine("  --backup-dir <dir>  Where the zips go (default: backups next to the exe)");
+            Console.WriteLine("  --clear-backups     Delete this tool's backup zips (EstesErrors_*.zip) after confirming");
+            Console.WriteLine("  --clear-alerts      Delete this tool's alert logs (estes-alerts-*.log) and the daily-duplicate");
+            Console.WriteLine("                      memory, after confirming");
+            Console.WriteLine("  --no-dedupe         Report repeats every cycle (default: one entry per message per day,");
+            Console.WriteLine("                      config dedupePerDay; the same message in several files is one entry)");
+            Console.WriteLine("  --yes               Skip the confirmation for the clear options");
             Console.WriteLine("  --config <file>     Use this config instead of estes-monitor.config.json");
             Console.WriteLine("  --list              Show areas, folders, and whether each exists, then exit");
             Console.WriteLine("  --write-config      Write the default config next to the exe so you can edit it");

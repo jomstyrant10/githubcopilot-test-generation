@@ -12,18 +12,6 @@ using System.Windows.Forms;
 
 namespace EstesMonitor
 {
-    internal sealed class Finding
-    {
-        public int Seq;
-        public DateTime Time;
-        public string Severity;
-        public string Area;
-        public string File;
-        public long Line = -1;
-        public int Count = 1;
-        public string Message;
-    }
-
     internal sealed class BufferedListView : ListView
     {
         public BufferedListView() { DoubleBuffered = true; }
@@ -40,6 +28,10 @@ namespace EstesMonitor
         readonly string configPathArg;
         readonly bool autoScan;
         readonly string exportPath;
+        readonly bool backupAfterScan;
+        readonly ErrorCollector collector = new ErrorCollector();
+        readonly DailyDeduper deduper = new DailyDeduper(null);
+        readonly List<Finding> rawAll = new List<Finding>();
 
         Settings settings;
         string configSource;
@@ -49,6 +41,8 @@ namespace EstesMonitor
         NumericUpDown intervalBox;
         CheckBox warnBox;
         Button scanBtn, startBtn, stopBtn, clearBtn, exportBtn, configBtn;
+        Button backupBtn, openBackupBtn, clearBackupsBtn;
+        CheckBox autoBackupBox, dedupeBox;
         Label configLabel;
         TextBox filterBox;
         ListView findingsView, foldersView;
@@ -60,17 +54,19 @@ namespace EstesMonitor
         int sortCol;
         bool sortAsc;
         long errorLines;
+        long hiddenDuplicates;
         int filesWatched;
         int eventSources;
         DateTime lastScan = DateTime.MinValue;
         bool running;
         ManualResetEvent stopEvent;
 
-        public MainForm(string configPathArg, bool autoScan, string exportPath)
+        public MainForm(string configPathArg, bool autoScan, string exportPath, bool backupAfterScan)
         {
             this.configPathArg = configPathArg;
             this.autoScan = autoScan;
             this.exportPath = exportPath;
+            this.backupAfterScan = backupAfterScan;
 
             BuildUi();
             LoadSettings(configPathArg, true);
@@ -172,7 +168,7 @@ namespace EstesMonitor
             // Top panel: areas + options + buttons
             Panel top = new Panel();
             top.Dock = DockStyle.Top;
-            top.Height = 150;
+            top.Height = 196;
             top.Padding = new Padding(8, 4, 8, 4);
 
             GroupBox areaBox = new GroupBox();
@@ -222,7 +218,7 @@ namespace EstesMonitor
             scanBtn = MakeButton("Scan once", 14, 52, 110);
             startBtn = MakeButton("Start monitoring", 132, 52, 130);
             stopBtn = MakeButton("Stop", 270, 52, 80);
-            clearBtn = MakeButton("Clear", 358, 52, 80);
+            clearBtn = MakeButton("Clear list", 358, 52, 80);
             exportBtn = MakeButton("Export to CSV...", 446, 52, 130);
             configBtn = MakeButton("Load config...", 584, 52, 120);
             scanBtn.Click += delegate { StartRun(true); };
@@ -232,9 +228,31 @@ namespace EstesMonitor
             exportBtn.Click += delegate { ExportDialog(); };
             configBtn.Click += delegate { LoadConfigDialog(); };
 
+            autoBackupBox = new CheckBox();
+            autoBackupBox.Text = "Auto-backup error files";
+            autoBackupBox.AutoSize = true;
+            autoBackupBox.Location = new Point(14, 102);
+            backupBtn = MakeButton("Backup error files to ZIP", 190, 94, 190);
+            openBackupBtn = MakeButton("Open backup folder", 388, 94, 150);
+            clearBackupsBtn = MakeButton("Clear backups...", 546, 94, 130);
+            backupBtn.Click += delegate { BackupNow(); };
+            openBackupBtn.Click += delegate { OpenBackupFolder(); };
+            clearBackupsBtn.Click += delegate { ClearBackups(); };
+            ToolTip tips = new ToolTip();
+            tips.SetToolTip(autoBackupBox, "While scanning or monitoring, zip copies of the files that have errors (at most once per backupIntervalMinutes, and when you press Stop).");
+            tips.SetToolTip(backupBtn, "Zip copies of the files that have errors (the filter applies), including files whose repeated messages are hidden by the one-per-day rule. Source files are only read, never changed or deleted.");
+            tips.SetToolTip(clearBackupsBtn, "Deletes this tool's backup zips (EstesErrors_*.zip) after you confirm. Nothing else is deleted.");
+            tips.SetToolTip(clearBtn, "Empties the findings list only. Files and backups are not touched. Messages hidden as duplicates can be reported again after this.");
+
+            dedupeBox = new CheckBox();
+            dedupeBox.Text = "One entry per message per day";
+            dedupeBox.AutoSize = true;
+            dedupeBox.Location = new Point(14, 138);
+            tips.SetToolTip(dedupeBox, "A message already shown today is not listed again, and the same message in several files is one entry. Backups still include every file with errors.");
+
             configLabel = new Label();
             configLabel.AutoEllipsis = true;
-            configLabel.Location = new Point(14, 100);
+            configLabel.Location = new Point(14, 166);
             configLabel.Size = new Size(690, 20);
             configLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             configLabel.ForeColor = SystemColors.GrayText;
@@ -245,12 +263,17 @@ namespace EstesMonitor
             opts.Controls.Add(l2);
             opts.Controls.Add(intervalBox);
             opts.Controls.Add(l3);
+            opts.Controls.Add(dedupeBox);
             opts.Controls.Add(scanBtn);
             opts.Controls.Add(startBtn);
             opts.Controls.Add(stopBtn);
             opts.Controls.Add(clearBtn);
             opts.Controls.Add(exportBtn);
             opts.Controls.Add(configBtn);
+            opts.Controls.Add(autoBackupBox);
+            opts.Controls.Add(backupBtn);
+            opts.Controls.Add(openBackupBtn);
+            opts.Controls.Add(clearBackupsBtn);
             opts.Controls.Add(configLabel);
 
             top.Controls.Add(opts);
@@ -307,7 +330,7 @@ namespace EstesMonitor
 
             settings = s;
             configSource = source;
-            configLabel.Text = "Config: " + source;
+            configLabel.Text = "Config: " + source + "    |    Backups: " + BackupTool.ResolveDir(settings.BackupDir);
 
             areaList.Items.Clear();
             foreach (KeyValuePair<string, List<string>> a in settings.Areas)
@@ -317,6 +340,8 @@ namespace EstesMonitor
             historyBox.SelectedIndex = idx >= 0 ? idx : 3;
             intervalBox.Value = Math.Max(intervalBox.Minimum, Math.Min(intervalBox.Maximum, settings.PollSeconds));
             warnBox.Checked = settings.IncludeWarnings;
+            autoBackupBox.Checked = settings.AutoBackup;
+            dedupeBox.Checked = settings.DedupePerDay;
 
             RefreshFolders();
         }
@@ -350,6 +375,7 @@ namespace EstesMonitor
             historyBox.Enabled = !value;
             intervalBox.Enabled = !value;
             areaList.Enabled = !value;
+            dedupeBox.Enabled = !value;
             stopBtn.Enabled = value;
         }
 
@@ -366,18 +392,19 @@ namespace EstesMonitor
             int hours = HistoryHours[historyBox.SelectedIndex];
             int poll = (int)intervalBox.Value;
             settings.IncludeWarnings = warnBox.Checked;
+            bool dedupe = dedupeBox.Checked;
             ManualResetEvent stop = new ManualResetEvent(false);
             stopEvent = stop;
 
             SetRunning(true);
             stateLabel.Text = once ? "Scanning..." : "Monitoring (every " + poll + " s)";
 
-            Thread t = new Thread(delegate() { Worker(areas, hours, once, poll, stop); });
+            Thread t = new Thread(delegate() { Worker(areas, hours, once, poll, stop, dedupe); });
             t.IsBackground = true;
             t.Start();
         }
 
-        void Worker(List<KeyValuePair<string, List<string>>> areas, int hours, bool once, int poll, ManualResetEvent stop)
+        void Worker(List<KeyValuePair<string, List<string>>> areas, int hours, bool once, int poll, ManualResetEvent stop, bool dedupe)
         {
             try
             {
@@ -394,8 +421,15 @@ namespace EstesMonitor
                     initial = false;
                     int sources = engine.EventSourcesQueried;
 
-                    long errs = groups.Where(g => g.Severity == "ERROR").Sum(g => (long)g.Count);
-                    PostFindings(ToFindings(groups, now), files, sources, errs, now);
+                    // Backups cover every file with errors, so keep the findings before duplicates are dropped.
+                    List<Finding> raw = groups.Select(g => Finding.FromGroup(g, now)).ToList();
+
+                    int hidden = 0;
+                    List<AlertGroup> shown = dedupe ? deduper.Filter(groups, now, out hidden) : groups;
+                    long errs = shown.Where(g => g.Severity == "ERROR").Sum(g => (long)g.Count);
+                    PostFindings(ToFindings(shown, now), raw, files, sources, errs, now);
+                    int hiddenNow = hidden;
+                    if (hiddenNow > 0) Post(delegate { hiddenDuplicates += hiddenNow; UpdateStatus(); });
 
                     if (once || stop.WaitOne(poll * 1000)) break;
                 }
@@ -415,7 +449,13 @@ namespace EstesMonitor
 
         void PostFindings(List<Finding> items, int files, int sources, long errs, DateTime when)
         {
-            Post(delegate { AddResults(items, files, sources, errs, when); });
+            PostFindings(items, items, files, sources, errs, when);
+        }
+
+        // backupItems = what the backup uses (every file with errors, even when duplicates are hidden from the list).
+        void PostFindings(List<Finding> items, List<Finding> backupItems, int files, int sources, long errs, DateTime when)
+        {
+            Post(delegate { AddResults(items, backupItems, files, sources, errs, when); });
         }
 
         Finding Info(string message, DateTime when)
@@ -474,9 +514,17 @@ namespace EstesMonitor
 
         void AddResults(List<Finding> items, int files, int sources, long errs, DateTime when)
         {
+            AddResults(items, items, files, sources, errs, when);
+        }
+
+        void AddResults(List<Finding> items, List<Finding> backupItems, int files, int sources, long errs, DateTime when)
+        {
             foreach (Finding f in items) f.Seq = ++seq;
             all.AddRange(items);
             if (all.Count > MaxRows) all.RemoveRange(0, all.Count - MaxRows);
+
+            rawAll.AddRange(backupItems.Where(x => x.Severity != "INFO"));
+            if (rawAll.Count > MaxRows) rawAll.RemoveRange(0, rawAll.Count - MaxRows);
 
             errorLines += errs;
             if (files >= 0)
@@ -487,6 +535,13 @@ namespace EstesMonitor
             }
             RefreshView();
             UpdateStatus();
+
+            if (autoBackupBox.Checked)
+            {
+                collector.Add(backupItems);
+                List<Finding> due = collector.TakeIfDue(settings.BackupIntervalMinutes);
+                if (due != null) StartBackup(due, true);
+            }
         }
 
         void Finished()
@@ -495,6 +550,17 @@ namespace EstesMonitor
             stateLabel.Text = "Idle";
             UpdateStatus();
             RefreshFolders();
+
+            if (backupAfterScan)
+            {
+                try { BackupTool.CreateZip(BackupTool.ResolveDir(settings.BackupDir), rawAll, settings.MaxBackupFileMB, settings.KeepBackups); }
+                catch (Exception) { GuiProgram.ExitCode = 2; }
+            }
+            else if (autoBackupBox.Checked)
+            {
+                List<Finding> rest = collector.TakeAll();
+                if (rest.Count > 0) StartBackup(rest, true);
+            }
 
             if (exportPath != null)
             {
@@ -506,17 +572,111 @@ namespace EstesMonitor
             }
         }
 
+        // ---------- backup ----------
+
+        void BackupNow()
+        {
+            string filterText = filterBox.Text.Trim();
+            List<Finding> items = rawAll.Where(f => filterText.Length == 0 || Matches(f, filterText)).ToList();
+            if (items.Count == 0)
+            {
+                MessageBox.Show(this, "There are no findings to back up. Run a scan first (the filter applies).", "Estes Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            StartBackup(items, false);
+        }
+
+        void StartBackup(List<Finding> items, bool auto)
+        {
+            string dir = BackupTool.ResolveDir(settings.BackupDir);
+            int keep = settings.KeepBackups;
+            int maxMb = settings.MaxBackupFileMB;
+            AddInfo("Creating backup of files with errors...");
+            ThreadPool.QueueUserWorkItem(delegate(object state)
+            {
+                BackupResult r = null;
+                string error = null;
+                try { r = BackupTool.CreateZip(dir, items, maxMb, keep); }
+                catch (Exception ex) { error = ex.Message; }
+                Post(delegate { BackupDone(r, error, auto); });
+            });
+        }
+
+        void BackupDone(BackupResult r, string error, bool auto)
+        {
+            if (error != null)
+            {
+                AddInfo("Backup failed: " + error);
+                if (!auto) MessageBox.Show(this, "The backup failed:\r\n\r\n" + error, "Estes Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (r == null) return;
+
+            AddInfo("Backup created: " + r.ZipPath + " (" + r.FilesAdded + " files"
+                + (r.FilesSkipped > 0 ? ", " + r.FilesSkipped + " skipped" : "")
+                + (r.Pruned > 0 ? ", " + r.Pruned + " old backup(s) removed" : "") + ")");
+            foreach (string n in r.Notes) AddInfo(n);
+
+            if (!auto && MessageBox.Show(this, "Saved " + r.FilesAdded + " file(s) (" + (r.BytesCopied / 1048576.0).ToString("N1") + " MB before compression) to:\r\n" + r.ZipPath
+                + "\r\n\nOpen the folder?", "Estes Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+            {
+                try { Process.Start("explorer.exe", "/select,\"" + r.ZipPath + "\""); } catch (Exception) { }
+            }
+        }
+
+        void AddInfo(string message)
+        {
+            AddResults(new List<Finding> { Info(message, DateTime.Now) }, -1, -1, 0, DateTime.Now);
+        }
+
+        void OpenBackupFolder()
+        {
+            string dir = BackupTool.ResolveDir(settings.BackupDir);
+            try
+            {
+                Directory.CreateDirectory(dir);
+                Process.Start("explorer.exe", "\"" + dir + "\"");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not open " + dir + ":\r\n" + ex.Message, "Estes Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        // Deletes only EstesErrors_*.zip files in the backup folder.
+        void ClearBackups()
+        {
+            string dir = BackupTool.ResolveDir(settings.BackupDir);
+            List<FileInfo> files = BackupTool.ListBackups(dir);
+            if (files.Count == 0)
+            {
+                MessageBox.Show(this, "There are no backups in:\r\n" + dir, "Estes Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            double mb = files.Sum(f => f.Length) / 1048576.0;
+            if (MessageBox.Show(this, "Delete " + files.Count + " backup zip(s) (" + mb.ToString("N1") + " MB) from:\r\n" + dir
+                + "\r\n\nOnly this tool's EstesErrors_*.zip files are removed. The original log files are not touched.",
+                "Clear backups", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+
+            long freed;
+            int deleted = BackupTool.DeleteFiles(files, out freed);
+            AddInfo("Cleared " + deleted + " backup(s), " + (freed / 1048576.0).ToString("N1") + " MB, from " + dir);
+        }
+
         void ClearFindings()
         {
             all.Clear();
+            rawAll.Clear();
+            deduper.Reset();
             errorLines = 0;
+            hiddenDuplicates = 0;
             RefreshView();
             UpdateStatus();
         }
 
         void UpdateStatus()
         {
-            countsLabel.Text = "Files watched: " + filesWatched + "    Event sources: " + eventSources + "    Error lines/events: " + errorLines + "    Rows shown: " + view.Count + " of " + all.Count;
+            countsLabel.Text = "Files watched: " + filesWatched + "    Event sources: " + eventSources + "    Error lines/events: " + errorLines + "    Duplicates hidden: " + hiddenDuplicates + "    Rows shown: " + view.Count + " of " + all.Count;
             lastLabel.Text = lastScan == DateTime.MinValue ? "No scan yet" : "Last scan: " + lastScan.ToString("yyyy-MM-dd HH:mm:ss");
         }
 
@@ -696,30 +856,9 @@ namespace EstesMonitor
         {
             using (StreamWriter w = new StreamWriter(path, false, new UTF8Encoding(true)))
             {
-                w.WriteLine("Time,Severity,Area,File,Line,Count,Message");
-                foreach (Finding f in view)
-                {
-                    w.WriteLine(string.Join(",", new string[]
-                    {
-                        Csv(f.Time.ToString("yyyy-MM-dd HH:mm:ss")),
-                        Csv(f.Severity),
-                        Csv(f.Area),
-                        Csv(f.File),
-                        f.Line >= 0 ? f.Line.ToString() : "",
-                        f.Severity == "INFO" ? "" : f.Count.ToString(),
-                        Csv(f.Message)
-                    }));
-                }
+                w.WriteLine(CsvUtil.Header);
+                foreach (Finding f in view) w.WriteLine(CsvUtil.Row(f));
             }
-        }
-
-        // Quotes as needed and neutralizes leading = + - @ so Excel does not run log text as a formula.
-        static string Csv(string s)
-        {
-            if (string.IsNullOrEmpty(s)) return "";
-            if ("=+-@\t\r".IndexOf(s[0]) >= 0) s = "'" + s;
-            if (s.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0) s = "\"" + s.Replace("\"", "\"\"") + "\"";
-            return s;
         }
     }
 
@@ -740,6 +879,7 @@ namespace EstesMonitor
             string configPath = null;
             string exportPath = null;
             bool autoScan = false;
+            bool backupAfterScan = false;
             try
             {
                 for (int i = 0; i < args.Length; i++)
@@ -755,18 +895,19 @@ namespace EstesMonitor
                             exportPath = args[i];
                             break;
                         case "--autoscan": autoScan = true; break;
+                        case "--backup": backupAfterScan = true; autoScan = true; break;
                         default: throw new ArgumentException("Unknown option: " + args[i]);
                     }
                 }
             }
             catch (ArgumentException ex)
             {
-                MessageBox.Show(ex.Message + "\r\n\r\nOptions: --config <file>, --autoscan, --export <file.csv>", "Estes Monitor",
+                MessageBox.Show(ex.Message + "\r\n\r\nOptions: --config <file>, --autoscan, --export <file.csv>, --backup (scan once and zip the files with errors)", "Estes Monitor",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return 2;
             }
 
-            Application.Run(new MainForm(configPath, autoScan, exportPath));
+            Application.Run(new MainForm(configPath, autoScan, exportPath, backupAfterScan));
             return ExitCode;
         }
     }
