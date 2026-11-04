@@ -1,1 +1,9 @@
 Output/*.csv
+
+# Estes Monitor output: build folder, backup zips, alert logs
+Utils/EstesMonitor/dist/
+Utils/EstesMonitor/release/backups/
+Utils/EstesMonitor/release/logs/
+EstesErrors_*.zip
+estes-alerts-*.log
+estes-dedupe-state.txt

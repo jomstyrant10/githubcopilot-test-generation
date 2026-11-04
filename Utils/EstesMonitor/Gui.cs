@@ -41,7 +41,7 @@ namespace EstesMonitor
         NumericUpDown intervalBox;
         CheckBox warnBox;
         Button scanBtn, startBtn, stopBtn, clearBtn, exportBtn, configBtn;
-        Button backupBtn, openBackupBtn, clearBackupsBtn;
+        Button backupBtn, openBackupBtn, clearBackupsBtn, backupDirBtn;
         CheckBox autoBackupBox, dedupeBox;
         Label configLabel;
         TextBox filterBox;
@@ -250,6 +250,10 @@ namespace EstesMonitor
             dedupeBox.Location = new Point(14, 138);
             tips.SetToolTip(dedupeBox, "A message already shown today is not listed again, and the same message in several files is one entry. Backups still include every file with errors.");
 
+            backupDirBtn = MakeButton("Backup folder...", 250, 130, 160);
+            backupDirBtn.Click += delegate { ChooseBackupFolder(); };
+            tips.SetToolTip(backupDirBtn, "Choose where the backup zips are saved. The choice is remembered for your Windows user.");
+
             configLabel = new Label();
             configLabel.AutoEllipsis = true;
             configLabel.Location = new Point(14, 166);
@@ -264,6 +268,7 @@ namespace EstesMonitor
             opts.Controls.Add(intervalBox);
             opts.Controls.Add(l3);
             opts.Controls.Add(dedupeBox);
+            opts.Controls.Add(backupDirBtn);
             opts.Controls.Add(scanBtn);
             opts.Controls.Add(startBtn);
             opts.Controls.Add(stopBtn);
@@ -330,7 +335,9 @@ namespace EstesMonitor
 
             settings = s;
             configSource = source;
-            configLabel.Text = "Config: " + source + "    |    Backups: " + BackupTool.ResolveDir(settings.BackupDir);
+            string savedDir = LoadBackupDirPreference();
+            if (savedDir != null) settings.BackupDir = savedDir;
+            UpdateConfigLabel();
 
             areaList.Items.Clear();
             foreach (KeyValuePair<string, List<string>> a in settings.Areas)
@@ -627,6 +634,72 @@ namespace EstesMonitor
         void AddInfo(string message)
         {
             AddResults(new List<Finding> { Info(message, DateTime.Now) }, -1, -1, 0, DateTime.Now);
+        }
+
+        // The folder chosen in the window is remembered per Windows user and wins over the config file.
+        static string BackupDirPreferenceFile()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EstesMonitor", "backup-dir.txt");
+        }
+
+        static string LoadBackupDirPreference()
+        {
+            try
+            {
+                string file = BackupDirPreferenceFile();
+                if (!File.Exists(file)) return null;
+                string dir = File.ReadAllText(file).Trim();
+                return dir.Length > 0 && Path.IsPathRooted(dir) ? dir : null;
+            }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+        }
+
+        static void SaveBackupDirPreference(string dir)
+        {
+            try
+            {
+                string file = BackupDirPreferenceFile();
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, dir, new UTF8Encoding(false));
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        void UpdateConfigLabel()
+        {
+            configLabel.Text = "Config: " + configSource + "    |    Backups: " + BackupTool.ResolveDir(settings.BackupDir);
+        }
+
+        void ChooseBackupFolder()
+        {
+            using (FolderBrowserDialog dlg = new FolderBrowserDialog())
+            {
+                dlg.Description = "Choose the folder where backup zips (EstesErrors_*.zip) are saved";
+                dlg.ShowNewFolderButton = true;
+                string current = BackupTool.ResolveDir(settings.BackupDir);
+                if (Directory.Exists(current)) dlg.SelectedPath = current;
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                string chosen = dlg.SelectedPath;
+                try
+                {
+                    Directory.CreateDirectory(chosen);
+                    using (File.Create(Path.Combine(chosen, ".write-test"), 1, FileOptions.DeleteOnClose)) { }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Cannot write to that folder:\r\n\r\n" + ex.Message + "\r\n\r\nChoose another folder.", "Estes Monitor",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                settings.BackupDir = chosen;
+                SaveBackupDirPreference(chosen);
+                UpdateConfigLabel();
+                AddInfo("Backups will be saved to: " + chosen);
+            }
         }
 
         void OpenBackupFolder()
